@@ -24,7 +24,7 @@ IPC significa Índice de Precios al Consumidor.
 
 Estas dos series permiten construir las cinco variables de entrada acordadas: inflación mensual del mes consultado y de los dos meses anteriores, e inflación en doce meses del mes consultado y del anterior.
 
-La variación en doce meses del mes siguiente permitirá construir la etiqueta de clasificación: supera el 3 % o no supera el 3 %. Esa información futura se utilizará como respuesta durante el entrenamiento y la evaluación, sin incluirse entre las entradas de la predicción.
+La variación en doce meses del mes siguiente permitirá construir la etiqueta de clasificación. El borrador actual distingue cuatro categorías: deflación, por debajo, dentro y por encima del rango meta, con los límites definidos en `docs/especificaciones.md`. Esa información futura se utilizará como respuesta durante el entrenamiento y la evaluación, sin incluirse entre las entradas de la predicción.
 
 ## Revisión del archivo
 

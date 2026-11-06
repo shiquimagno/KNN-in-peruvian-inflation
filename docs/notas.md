@@ -1,2 +1,0 @@
-# Guía básica de la inflación en este proyecto
-- La inflación se basa en la variación porcentual del IPC (Índice de precios del consumidor, es decir, un archivo organizado con los precios de los bienes y servicios que consumen los hogares como transporte, vivienda, salud, etc)
