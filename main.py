@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
+import questionary
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -84,25 +85,50 @@ def menu():
     print("Inflación de Lima Metropolitana")
     # Después de cada consulta, el bucle vuelve a mostrar las opciones.
     while True:
-        print("\n1. Ver datos\n2. Pronosticar con KNN\n3. Salir")
+        # 3. Menú tipo date usando textual para elegir la fecha en retrospectiva dentro del rango 2007 a 2026 octubre y se debe guardar en metrics.csv
+        # 5. Resumen de KNN (cuando esté el KNN propuesto restringido se lo agrega al resumen). Debe incluir las métricas de precisión en promedio del metrics.cscv
+        #
         try:
-            opcion = input("Elige una opción: ").strip()
+            opcion = questionary.select(
+                "\nElige una opción: ",
+                choices=[
+                    questionary.Choice("1. Visualizar datos", value="datos"),
+                    questionary.Choice(
+                        "2. Pronosticar inflación con KNN tradicional",
+                        value="knn_pronostico",
+                    ),
+                    questionary.Choice(
+                        "3. Pronosticar en retrospectiva y evaluar pronóstico",
+                        value="retrospectiva",
+                    ),
+                    questionary.Choice(
+                        "4. Pronosticar con KNN restringido", value="knn_restringido"
+                    ),
+                    questionary.Choice(
+                        "5. Mostrar resumen comparativo", value="resumen"
+                    ),
+                    questionary.Choice("6. Salir\n", value="salir"),
+                ],
+            ).ask()
         except (EOFError, KeyboardInterrupt):
             print()
             return
-        if opcion == "3":
-            return
-        if opcion not in {"1", "2"}:
-            print("Elige 1, 2 o 3.")
-            continue
-
         try:
             datos = cargar_datos()
             ultimo = datos.index[-1]
-            if opcion == "1":
+            if opcion == "datos":
                 print(f"{len(datos)} meses, de {datos.index[0]} a {ultimo}.")
-            else:
+            elif opcion == "knn_pronostico":
                 print(f"Pronóstico para {ultimo + 1}: {pronosticar(datos)}.")
+            elif opcion == "restrospectiva":
+                # Mostrar retrospectiva
+                pass
+            elif opcion == "knn_restringido":
+                pass
+            elif opcion == "resumen":
+                print("hi")
+            elif opcion == "salir":
+                return
         except (KeyError, OSError, ValueError) as error:
             print(f"No se pudo completar la operación: {error}")
 
