@@ -6,6 +6,8 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from src.resumen import generar_resumen
+
 CSV = Path(__file__).resolve().parent / "data/origiales/Mensuales-20261019-144216.csv"
 MESES = [
     "ene",
@@ -82,7 +84,7 @@ def pronosticar(datos):
 
 
 def menu():
-    print("Inflación de Lima Metropolitana")
+    print("==== MENÚ DE INFLACIÓN DE LIMA METROPOLITANA ====\n")
     # Después de cada consulta, el bucle vuelve a mostrar las opciones.
     while True:
         # 3. Menú tipo date usando textual para elegir la fecha en retrospectiva dentro del rango 2007 a 2026 octubre y se debe guardar en metrics.csv
@@ -90,7 +92,7 @@ def menu():
         #
         try:
             opcion = questionary.select(
-                "\nElige una opción: ",
+                "Elige una opción: ",
                 choices=[
                     questionary.Choice("1. Visualizar datos", value="datos"),
                     questionary.Choice(
@@ -126,9 +128,9 @@ def menu():
             elif opcion == "knn_restringido":
                 pass
             elif opcion == "resumen":
-                ruta_metrics =(
+                ruta_metrics = (
                     Path(__file__).resolve().parent
-                    /"data"
+                    / "data"
                     / "origiales"
                     / "metrics.csv"
                 )

@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import pandas as pd
 
 
@@ -14,7 +15,9 @@ def generar_resumen(archivo_csv: Path | None = None) -> pd.DataFrame | None:
         )
 
     if not archivo_csv.exists():
-        print(f"\n[!] El archivo de métricas '{archivo_csv.name}' no existe en {archivo_csv.parent}.")
+        print(
+            f"\n[!] El archivo de métricas '{archivo_csv.name}' no existe en {archivo_csv.parent}."
+        )
         print("Ejecuta primero la opción 3 para registrar métricas.")
         return None
 
