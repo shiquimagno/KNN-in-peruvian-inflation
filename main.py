@@ -126,7 +126,13 @@ def menu():
             elif opcion == "knn_restringido":
                 pass
             elif opcion == "resumen":
-                print("hi")
+                ruta_metrics =(
+                    Path(__file__).resolve().parent
+                    /"data"
+                    / "origiales"
+                    / "metrics.csv"
+                )
+                generar_resumen(ruta_metrics)
             elif opcion == "salir":
                 return
         except (KeyError, OSError, ValueError) as error:
