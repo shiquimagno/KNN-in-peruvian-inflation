@@ -1,4 +1,38 @@
-.venv
+# Entornos y cachés de Python
+.venv/
+venv/
 __pycache__/
-*.pyc
-docs/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Archivos locales del sistema y del editor
+.DS_Store
+.AppleDouble
+._*
+.vscode/
+.idea/
+
+# Configuración privada y archivos temporales
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+
+# Resultados de ejecución que se regeneran o se conservan solo localmente
+/data/metrics.csv
+/data/resumen_metricas.csv
+/resultados/
+
+# Borradores locales del informe
+/docs/
+
+# Notas de aprendizaje privadas para el grupo
+/documentación_aprendizaje/*
+
+# Exportaciones privadas de documentos para compartir con el grupo
+/output/

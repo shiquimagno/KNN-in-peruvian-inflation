@@ -1,55 +1,55 @@
+"""Exportación del resumen y compatibilidad con su punto de entrada anterior."""
+
+# Rutas, archivos temporales y tablas
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 import pandas as pd
 
+# Esquema del CSV de métricas agregadas
+COLUMNAS_EXPORTACION = [
+    "version", "modelo", "mes_inicio", "mes_fin", "n_meses", "aciertos",
+    "exactitud", "precision_macro", "recall_macro", "f1_macro",
+]
 
-def generar_resumen(archivo_csv: Path | None = None) -> pd.DataFrame | None:
-    """Lee data/origiales/metrics.csv y muestra las métricas comparativas."""
-    if archivo_csv is None:
-        # Sube desde src/ hasta la raíz y entra a data/origiales/metrics.csv
-        archivo_csv = (
-            Path(__file__).resolve().parent.parent
-            / "data"
-            / "origiales"
-            / "metrics.csv"
-        )
 
-    if not archivo_csv.exists():
-        print(
-            f"\n[!] El archivo de métricas '{archivo_csv.name}' no existe en {archivo_csv.parent}."
-        )
-        print("Ejecuta primero la opción 3 para registrar métricas.")
-        return None
-
+# Escritura completa antes de reemplazar el archivo destino
+def guardar_csv(tabla, archivo):
+    archivo = Path(archivo)
+    archivo.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile(dir=archivo.parent, suffix=".tmp", delete=False) as temporal:
+        ruta_temporal = Path(temporal.name)
     try:
-        df_metrics = pd.read_csv(archivo_csv)
+        tabla.to_csv(ruta_temporal, index=False)
+        ruta_temporal.replace(archivo)
+    finally:
+        ruta_temporal.unlink(missing_ok=True)
 
-        if df_metrics.empty:
-            print(f"\n[!] El archivo '{archivo_csv.name}' está vacío.")
-            return None
 
-        print("\n" + "=" * 55)
-        print("          RESUMEN COMPARATIVO DE MÉTRICAS (KNN)")
-        print("=" * 55)
+# Preparación de las columnas para el informe académico
+def exportar_resumen(resumen, archivo):
+    if resumen is None or resumen.empty:
+        exportacion = pd.DataFrame(columns=COLUMNAS_EXPORTACION)
+    else:
+        exportacion = resumen.rename(columns={
+            "Versión": "version", "Modelo": "modelo", "Inicio": "mes_inicio",
+            "Fin": "mes_fin", "Meses": "n_meses", "Aciertos": "aciertos",
+            "Exactitud": "exactitud", "Precisión macro": "precision_macro",
+            "Recall macro": "recall_macro", "F1 macro": "f1_macro",
+        }).copy()
+        from src.resultados import NOMBRES
+        exportacion["modelo"] = exportacion.modelo.map(NOMBRES).fillna(exportacion.modelo)
+        exportacion["aciertos"] = exportacion.aciertos.str.split("/").str[0].astype(int)
+        exportacion = exportacion[COLUMNAS_EXPORTACION]
+    guardar_csv(exportacion, archivo)
 
-        # Muestra el historial registrado
-        print("\n--- Historial de Evaluaciones ---")
-        print(df_metrics.tail(10).to_string(index=False))
 
-        # Precisión promedio por tipo de modelo si existe la columna 'modelo'
-        if "precision" in df_metrics.columns:
-            print("\n--- Precisión Promedio ---")
-            if "modelo" in df_metrics.columns:
-                promedios = df_metrics.groupby("modelo")["precision"].mean()
-                for modelo, prec in promedios.items():
-                    print(f" • {modelo}: {prec * 100:.2f}%")
-            else:
-                promedio_general = df_metrics["precision"].mean()
-                print(f" • General: {promedio_general * 100:.2f}%")
-
-        print("=" * 55 + "\n")
-        return df_metrics
-
-    except Exception as error:
-        print(f"\n[ERROR] No se pudo leer el archivo de métricas: {error}")
+# Acceso auxiliar al mismo resumen que utiliza el menú
+def generar_resumen(archivo_csv: Path | None = None) -> pd.DataFrame | None:
+    """Comparte la ruta y las reglas del resumen del menú."""
+    from main import generar_resumen as resumen_principal
+    try:
+        return resumen_principal(archivo_csv)
+    except (AttributeError, KeyError, OSError, ValueError) as error:
+        print(f"\nAviso: no se pudo leer el resumen. {error}\n")
         return None
