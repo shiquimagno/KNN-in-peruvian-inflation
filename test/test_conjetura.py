@@ -132,6 +132,20 @@ class TestConjetura(unittest.TestCase):
             self.assertEqual((a.vecinos, a.clase), (b.vecinos, b.clase))
             self.assertEqual(bool(b.avisos), estado != "sin_alerta")
 
+    def test_desempata_por_mes_y_por_cercania_de_la_categoria(self):
+        meses = pd.period_range("2020-01", periods=8, freq="M")
+        datos = pd.DataFrame({"interanual": [2, -1, 4, .5, .5, 4, .5, 2]}, index=meses)
+        entradas = pd.DataFrame({"entrada": [9, 8, 7, 6, 5, 5, 10, 10]}, index=meses)
+        origen = meses[-1]
+        alertas = {mes: ("alerta", "A") for mes in meses[1:7]}
+        alertas[origen + 1] = ("alerta", "B")
+
+        resultado = clasificar(datos, entradas, origen, alertas, restringido=True)
+
+        self.assertTrue(resultado.filtrado)
+        self.assertEqual(resultado.vecinos, list(meses[:K]))
+        self.assertEqual(resultado.clase, categoria(4))
+
     def test_oculta_la_respuesta_y_los_comunicados_posteriores(self):
         with tempfile.TemporaryDirectory() as carpeta:
             ruta = Path(carpeta) / "alertas.csv"

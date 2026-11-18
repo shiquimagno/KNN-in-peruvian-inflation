@@ -1,24 +1,10 @@
-# Herramientas de Python y bibliotecas del proyecto
-import ast
-import hashlib
-import inspect
-import json
-import textwrap
-import tracemalloc
-from collections import Counter
-from dataclasses import dataclass, field
-from pathlib import Path
-from time import perf_counter
+from os import path
 
 import numpy as np
 import pandas as pd
 import questionary
-from sklearn.metrics import (
-    accuracy_score,
-    confusion_matrix,
-    precision_recall_fscore_support,
-)
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
+from sklearn.metrics.pairwise import manhattan_distances
 from sklearn.preprocessing import StandardScaler
 
 from src.menu import INSTRUCCION, VOLVER, elegir_intervalo, elegir_mes
@@ -31,30 +17,17 @@ from src.resultados import (
 )
 from src.resumen import exportar_resumen, guardar_csv
 
-# Archivo de inflación y calendario de lectura
-CSV = Path(__file__).resolve().parent / "data/origiales/Mensuales-20261019-144216.csv"
-MESES = [
-    "ene",
-    "feb",
-    "mar",
-    "abr",
-    "may",
-    "jun",
-    "jul",
-    "ago",
-    "sep",
-    "oct",
-    "nov",
-    "dic",
-]
+DATOS = path.join(path.dirname(path.realpath(__file__)), "data")
+CSV = path.join(DATOS, "origiales", "Mensuales-20261019-144216.csv")
+FUENTES = path.join(DATOS, "fuentes_adicionales")
+METRICAS = path.join(DATOS, "metrics.csv")
+MESES = "ene feb mar abr may jun jul ago sep oct nov dic".split()
 
 
 # Lectura y validación del historial de inflación
 def cargar_datos():
     # La segunda fila describe las series. La primera contiene sus códigos.
-    datos = pd.read_csv(
-        CSV, encoding="cp1252", skiprows=[1]
-    )  # Instanciamos pandas con datos
+    datos = pd.read_csv(CSV, encoding="cp1252", skiprows=[1])
     fechas = datos.iloc[:, 0].str.lower()
     meses = fechas.str[:3].map({nombre: i for i, nombre in enumerate(MESES, 1)})
     fechas = pd.to_datetime(
@@ -94,11 +67,11 @@ def categoria(inflacion):
     return "Por encima del rango meta"
 
 
-# Rutas de trabajo y configuración de los tres modelos
-FUENTES = CSV.parents[1] / "fuentes_adicionales"
-METRICAS = CSV.parents[1] / "metrics.csv"
+# Configuración de los tres modelos
 CLASES = [categoria(x) for x in (-1, 0.5, 2, 4)]
 K = 5
+# Actualizar al cambiar los datos de entrada o las reglas de evaluación.
+REVISION_EVALUACION = "v2"
 EXTERNAS = [
     "tc_var_pct",
     "expectativa_inflacion_12m_pct",
@@ -114,6 +87,14 @@ MODELOS = [
 ]
 
 
+def cargar_externas():
+    externas = pd.read_csv(
+        path.join(FUENTES, "variables_mensuales.csv"), index_col="mes_observacion"
+    )
+    externas.index = pd.PeriodIndex(externas.index, freq="M")
+    return externas
+
+
 # Preparación de variables y rezagos mensuales
 def preparar_entradas(datos, ampliadas=True):
     entradas = datos.assign(
@@ -122,10 +103,7 @@ def preparar_entradas(datos, ampliadas=True):
         interanual_anterior=datos.interanual.shift(1),
     )
     if ampliadas:
-        externas = pd.read_csv(
-            FUENTES / "variables_mensuales.csv", index_col="mes_observacion"
-        )
-        externas.index = pd.PeriodIndex(externas.index, freq="M")
+        externas = cargar_externas()
         # Un mes de rezago en cada fila, también al simular pronósticos antiguos.
         entradas = entradas.join(externas[EXTERNAS].reindex(datos.index).shift(1))
     return entradas.replace([np.inf, -np.inf], np.nan)
@@ -137,8 +115,8 @@ def cargar_alertas(ruta=None):
     fecha_publicacion: AAAA-MM-DD; estado: alerta/sin_alerta/desconocido;
     episodio: identificador común a los comunicados del mismo episodio.
     """
-    archivo = FUENTES / "alertas_enfen.csv" if ruta is None else Path(ruta)
-    if ruta is None and not archivo.exists():
+    archivo = path.join(FUENTES, "alertas_enfen.csv") if ruta is None else ruta
+    if ruta is None and not path.exists(archivo):
         return {}
     tabla = pd.read_csv(archivo, dtype=str, keep_default_na=False)
     requeridas = {"fecha_publicacion", "mes_objetivo", "estado", "episodio"}
@@ -170,22 +148,18 @@ def cargar_alertas(ruta=None):
 
 
 # Datos que devuelve cada consulta al clasificador
-@dataclass
 class Resultado:
-    clase: str | None = None
-    vecinos: list = field(default_factory=list)
-    episodios: set = field(default_factory=set)
-    vecinos_sin_episodio: int = 0
-    filtrado: bool = False
-    avisos: list = field(default_factory=list)
-    preparacion_ms: float | None = None
-    consulta_ms: float | None = None
-    votos: list = field(default_factory=list)
+    def __init__(self):
+        self.clase = None
+        self.vecinos = []
+        self.episodios = set()
+        self.vecinos_sin_episodio = 0
+        self.filtrado = False
+        self.avisos = []
 
 
 # Entrenamiento y consulta del modelo KNN
 def clasificar(datos, entradas, origen, alertas, restringido=False):
-    inicio_preparacion = perf_counter()
     resultado = Resultado()
     # Condición climática del mes que se quiere predecir
     estado = alertas.get(origen + 1, ("desconocido", ""))[0]
@@ -208,7 +182,7 @@ def clasificar(datos, entradas, origen, alertas, restringido=False):
         resultado.avisos.append("Hay menos de cinco meses históricos utilizables.")
         return resultado
 
-    # La escala es idéntica en ambos KNN. Solo cambia el conjunto que puede votar.
+    # Los modelos ampliados usan la misma escala para comparar distancias.
     escala = StandardScaler().fit(historial)
     candidatos = historial
     if restringido and estado == "alerta":
@@ -223,27 +197,14 @@ def clasificar(datos, entradas, origen, alertas, restringido=False):
                 f"Solo {len(comparables)} antecedentes con alerta. Se usa el historial general."
             )
 
-    # Ajuste del buscador con los candidatos admitidos
-    modelo = KNeighborsClassifier(
-        n_neighbors=K, metric="manhattan", weights="uniform", algorithm="brute"
-    )
-    modelo.fit(escala.transform(candidatos), etiquetas.loc[candidatos.index])
-    resultado.preparacion_ms = (perf_counter() - inicio_preparacion) * 1000
-    inicio_consulta = perf_counter()
-    # Búsqueda de vecinos y orden reproducible ante distancias iguales
     consulta = escala.transform(entradas.loc[[origen]])
-    # Distancias iguales: primero el mes más antiguo. Empate de votos: el vecino
-    # más cercano entre las clases empatadas, usando el mismo orden reproducible.
-    distancias, indices = modelo.kneighbors(consulta, n_neighbors=len(candidatos))
-    orden = sorted(zip(distancias[0], indices[0]), key=lambda par: (par[0], par[1]))
-    resultado.vecinos = [candidatos.index[i] for _, i in orden[:K]]
-    # Clasificación por mayoría y resolución de empates
-    votos = etiquetas.loc[resultado.vecinos].tolist()
-    resultado.votos = votos
-    conteo = Counter(votos)
-    resultado.clase = next(
-        voto for voto in votos if conteo[voto] == max(conteo.values())
-    )
+    distancias = manhattan_distances(consulta, escala.transform(candidatos))[0]
+    # Un orden estable conserva el orden cronológico cuando hay distancias iguales.
+    cercanos = np.argsort(distancias, kind="stable")[:K]
+    resultado.vecinos = candidatos.index[cercanos].tolist()
+    # Si hay empate entre categorías, se elige la del vecino más cercano entre ellas.
+    clases = etiquetas.loc[resultado.vecinos]
+    resultado.clase = clases[clases.isin(clases.mode())].iloc[0]
     # Episodios climáticos representados entre los vecinos
     for mes in resultado.vecinos:
         estado_vecino, episodio = alertas.get(mes + 1, ("desconocido", ""))
@@ -252,43 +213,11 @@ def clasificar(datos, entradas, origen, alertas, restringido=False):
                 resultado.episodios.add(episodio)
             else:
                 resultado.vecinos_sin_episodio += 1
-    resultado.consulta_ms = (perf_counter() - inicio_consulta) * 1000
     return resultado
 
 
-# Acceso breve al pronóstico tradicional
-def pronosticar(datos):
-    """Pronóstico tradicional del menú con las cinco variables originales."""
-    return clasificar(datos, preparar_entradas(datos, False), datos.index[-1], {}).clase
-
-
-# Identificación de reglas y datos para separar evaluaciones
-def version_evaluacion(alertas=None):
-    """Identifica los datos, las reglas y la configuración usados al evaluar."""
-    if alertas is None:
-        alertas = cargar_alertas()
-    firma = hashlib.sha256()
-    configuracion = {
-        "k": K,
-        "externas": EXTERNAS,
-        "clases": CLASES,
-        "alertas": sorted(
-            (str(m), estado, episodio) for m, (estado, episodio) in alertas.items()
-        ),
-    }
-    firma.update(json.dumps(configuracion, sort_keys=True).encode())
-    for funcion in (
-        cargar_datos,
-        preparar_entradas,
-        cargar_alertas,
-        categoria,
-        clasificar,
-    ):
-        fuente = textwrap.dedent(inspect.getsource(funcion))
-        firma.update(ast.dump(ast.parse(fuente), include_attributes=False).encode())
-    for ruta in (CSV, FUENTES / "variables_mensuales.csv"):
-        firma.update(ruta.read_bytes())
-    return firma.hexdigest()[:16]
+def version_evaluacion():
+    return f"{REVISION_EVALUACION}-k{K}"
 
 
 # Lectura del historial de evaluaciones guardadas
@@ -313,44 +242,29 @@ def retrospectiva(datos, objetivo, alertas):
             "El mes objetivo y su mes anterior deben estar en el historial."
         )
     historial = datos.loc[:origen]
-    version = version_evaluacion(alertas)
+    tradicionales = preparar_entradas(historial, ampliadas=False)
+    ampliadas = preparar_entradas(historial)
     resultados = []
-    filas = []
-    for nombre, ampliadas, restringido in MODELOS:
-        # Memoria rastreada de Python durante preparación y clasificación.
-        # Se detiene incluso si la consulta produce un error.
-        tracemalloc.start()
-        try:
-            inicio = perf_counter()
-            entradas = preparar_entradas(historial, ampliadas)
-            entradas_ms = (perf_counter() - inicio) * 1000
-            r = clasificar(historial, entradas, origen, alertas, restringido)
-            pico_kib = tracemalloc.get_traced_memory()[1] / 1024
-        finally:
-            tracemalloc.stop()
+    for nombre, usar_ampliadas, restringido in MODELOS:
+        entradas = ampliadas if usar_ampliadas else tradicionales
+        r = clasificar(historial, entradas, origen, alertas, restringido)
         resultados.append((nombre, r))
-        filas.append(
-            {
-                "mes": str(objetivo),
-                "version": version,
-                "modelo": nombre,
-                "estimacion": r.clase,
-                "filtro_aplicado": r.filtrado,
-                "preparacion_ms": entradas_ms + r.preparacion_ms
-                if r.preparacion_ms is not None
-                else None,
-                "consulta_ms": r.consulta_ms,
-                "memoria_python_kib": pico_kib,
-            }
-        )
-    # Comparación con la categoría observada y registro del acierto
-    real = categoria(datos.loc[objetivo, "interanual"])
-    mostrar_evaluacion(objetivo, datos.loc[objetivo, "interanual"], real, resultados)
-    nuevos = pd.DataFrame(filas).assign(real=real)
-    nuevos["precision"] = (
-        nuevos.estimacion.eq(real).astype(float).where(nuevos.estimacion.notna())
-    )
-    if METRICAS.exists() and METRICAS.stat().st_size:
+    # Comparación con la categoría observada y registro de la evaluación
+    inflacion = datos.loc[objetivo, "interanual"]
+    real = categoria(inflacion)
+    mostrar_evaluacion(objetivo, inflacion, real, resultados)
+    version = version_evaluacion()
+    nuevos = pd.DataFrame([
+        {
+            "mes": str(objetivo),
+            "version": version,
+            "modelo": nombre,
+            "estimacion": r.clase,
+            "filtro_aplicado": r.filtrado,
+        }
+        for nombre, r in resultados
+    ]).assign(real=real)
+    if path.exists(METRICAS) and path.getsize(METRICAS):
         nuevos = pd.concat([leer_metricas(METRICAS), nuevos], ignore_index=True)
     nuevos = nuevos.drop_duplicates(["version", "mes", "modelo"], keep="last")
     # Guardado del historial y actualización del resumen académico
@@ -358,7 +272,8 @@ def retrospectiva(datos, objetivo, alertas):
     print(f"Evaluación guardada en {METRICAS}.")
     try:
         generar_resumen(mostrar=False)
-        print(f"Resumen actualizado en {METRICAS.with_name('resumen_metricas.csv')}.\n")
+        destino = path.join(path.dirname(METRICAS), "resumen_metricas.csv")
+        print(f"Resumen actualizado en {destino}.\n")
     except (OSError, ValueError) as error:
         print(
             f"La evaluación quedó guardada. No se pudo actualizar el resumen: {error}\n"
@@ -367,9 +282,10 @@ def retrospectiva(datos, objetivo, alertas):
 
 # Cálculo y presentación de las métricas comparativas
 def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
-    archivo_csv = Path(archivo_csv) if archivo_csv is not None else METRICAS
-    destino = archivo_csv.with_name("resumen_metricas.csv")
-    if not archivo_csv.exists() or not archivo_csv.stat().st_size:
+    if archivo_csv is None:
+        archivo_csv = METRICAS
+    destino = path.join(path.dirname(archivo_csv), "resumen_metricas.csv")
+    if not path.exists(archivo_csv) or not path.getsize(archivo_csv):
         exportar_resumen(None, destino)
         if mostrar:
             print("Todavía no hay evaluaciones. Usa la opción 5 para evaluar un mes.")
@@ -394,6 +310,11 @@ def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
             )
             print(f"Resumen sin filas guardado en {destino}.\n")
         return None
+    meses_validos = tabla.mes.astype("string").str.fullmatch(
+        r"(?!0000)[0-9]{4}-(0[1-9]|1[0-2])", na=False
+    )
+    if not meses_validos.all():
+        raise ValueError("El registro contiene meses inválidos. Se espera el formato AAAA-MM.")
     if (
         not tabla.real.isin(CLASES).all()
         or not tabla.estimacion.dropna().isin(CLASES).all()
@@ -426,6 +347,7 @@ def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
     detalles = []
     for nombre in nombres:
         grupo = pares[pares.modelo.eq(nombre)]
+        aciertos = grupo.estimacion.eq(grupo.real).sum()
         precision, recall, f1, soporte = precision_recall_fscore_support(
             grupo.real, grupo.estimacion, labels=CLASES, zero_division=0
         )
@@ -436,8 +358,8 @@ def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
                 "Inicio": min(comunes),
                 "Fin": max(comunes),
                 "Meses": len(grupo),
-                "Aciertos": f"{grupo.estimacion.eq(grupo.real).sum()}/{len(grupo)}",
-                "Exactitud": accuracy_score(grupo.real, grupo.estimacion),
+                "Aciertos": f"{aciertos}/{len(grupo)}",
+                "Exactitud": aciertos / len(grupo),
                 "Precisión macro": precision.mean(),
                 "Recall macro": recall.mean(),
                 "F1 macro": f1.mean(),
@@ -583,11 +505,7 @@ def menu():
             if opcion == "1":
                 intervalo = elegir_intervalo(datos)
                 if intervalo is not None:
-                    externas = pd.read_csv(
-                        FUENTES / "variables_mensuales.csv", index_col="mes_observacion"
-                    )
-                    externas.index = pd.PeriodIndex(externas.index, freq="M")
-                    mostrar_datos(datos, externas, *intervalo)
+                    mostrar_datos(datos, cargar_externas(), *intervalo)
             elif opcion == "5":
                 mes = elegir_mes(datos, preparar_entradas(datos), K)
                 if mes is not None:

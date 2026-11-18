@@ -1,7 +1,7 @@
 """Presentación y exportación de las métricas del clasificador."""
 
 # Herramientas para construir figuras y exportarlas
-from pathlib import Path
+from os import fspath, makedirs, path
 
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
@@ -10,8 +10,8 @@ from src.resultados import NOMBRES
 
 # Exportación auxiliar de una figura a PNG
 def guardar_figura(figura, destino):
-    destino = Path(destino)
-    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino = fspath(destino)
+    makedirs(path.dirname(path.abspath(destino)), exist_ok=True)
     FigureCanvasAgg(figura)
     figura.savefig(destino, dpi=180, bbox_inches="tight")
     figura.clear()
@@ -52,7 +52,7 @@ def crear_comparacion(resumen, figura=None):
 def graficar_comparacion(resumen, carpeta):
     figura = crear_comparacion(resumen)
     version = resumen.iloc[0]["Versión"]
-    return guardar_figura(figura, Path(carpeta) / f"comparacion_{version}.png")
+    return guardar_figura(figura, path.join(carpeta, f"comparacion_{version}.png"))
 
 
 # Apertura de una ventana interactiva de Matplotlib

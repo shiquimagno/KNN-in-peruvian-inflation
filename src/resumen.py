@@ -1,7 +1,8 @@
-"""Exportación del resumen y compatibilidad con su punto de entrada anterior."""
+"""Exportación en CSV del historial y del resumen."""
 
 # Rutas, archivos temporales y tablas
-from pathlib import Path
+from contextlib import suppress
+from os import makedirs, path, replace, unlink
 from tempfile import NamedTemporaryFile
 
 import pandas as pd
@@ -15,15 +16,16 @@ COLUMNAS_EXPORTACION = [
 
 # Escritura completa antes de reemplazar el archivo destino
 def guardar_csv(tabla, archivo):
-    archivo = Path(archivo)
-    archivo.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile(dir=archivo.parent, suffix=".tmp", delete=False) as temporal:
-        ruta_temporal = Path(temporal.name)
+    carpeta = path.dirname(path.abspath(archivo))
+    makedirs(carpeta, exist_ok=True)
+    with NamedTemporaryFile(dir=carpeta, suffix=".tmp", delete=False) as temporal:
+        ruta_temporal = temporal.name
     try:
         tabla.to_csv(ruta_temporal, index=False)
-        ruta_temporal.replace(archivo)
+        replace(ruta_temporal, archivo)
     finally:
-        ruta_temporal.unlink(missing_ok=True)
+        with suppress(FileNotFoundError):
+            unlink(ruta_temporal)
 
 
 # Preparación de las columnas para el informe académico
@@ -42,14 +44,3 @@ def exportar_resumen(resumen, archivo):
         exportacion["aciertos"] = exportacion.aciertos.str.split("/").str[0].astype(int)
         exportacion = exportacion[COLUMNAS_EXPORTACION]
     guardar_csv(exportacion, archivo)
-
-
-# Acceso auxiliar al mismo resumen que utiliza el menú
-def generar_resumen(archivo_csv: Path | None = None) -> pd.DataFrame | None:
-    """Comparte la ruta y las reglas del resumen del menú."""
-    from main import generar_resumen as resumen_principal
-    try:
-        return resumen_principal(archivo_csv)
-    except (AttributeError, KeyError, OSError, ValueError) as error:
-        print(f"\nAviso: no se pudo leer el resumen. {error}\n")
-        return None

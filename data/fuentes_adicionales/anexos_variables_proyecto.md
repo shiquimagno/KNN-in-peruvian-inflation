@@ -118,7 +118,7 @@ Para pronosticar octubre de 2026 con origen en septiembre de 2026, las cinco ent
 1. Ordenar los datos por mes y comprobar continuidad y valores finitos.
 2. Construir los rezagos y descartar filas incompletas.
 3. Ajustar `StandardScaler` con el historial de entrenamiento; aplicar esa escala a candidatos y consulta.
-4. Buscar cinco vecinos mediante distancia Manhattan y votar usando la categoría interanual del mes siguiente a cada vecino.
+4. Buscar los cinco vecinos más cercanos mediante distancia Manhattan. La predicción es la categoría más frecuente de la inflación interanual del mes siguiente a cada vecino. Si dos categorías empatan, se elige la del vecino más cercano entre ellas.
 5. Comparar KNN tradicional, general ampliado y restringido sobre los mismos meses mediante una evaluación cronológica.
 6. Informar exactitud, precisión por clase, recall, F1 macro, matriz de confusión y cantidad de casos por clase. Comparar también con una referencia sencilla, como repetir la categoría del mes de origen.
 
