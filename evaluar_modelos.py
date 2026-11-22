@@ -1,4 +1,4 @@
-"""Evalúa retrospectivamente las tres variantes KNN de AlertaIPC."""
+# Evalúa a todos
 
 from pathlib import Path
 
@@ -12,20 +12,22 @@ from src.graficos import guardar_figura
 from src.resultados import NOMBRES
 from src.resumen import guardar_csv
 
+
+# Configuración
 ETIQUETAS = {
     NOMBRES["Tradicional (5 variables)"]: "KNN tradicional",
     NOMBRES["General (9 variables)"]: "KNN general",
     NOMBRES["Restringido (9 variables)"]: "KNN restringido",
 }
-# Usa None para cubrir todo el historial o indica un mes en formato AAAA-MM.
+# Uso None para evaluar todo el historial o indica un mes con formato AAAA-MM
 INICIO = None
 FIN = None
 SALIDA = Path(__file__).resolve().parent / "resultados" / "retrospectiva"
 TAMANO_GRAFICO = (11.5, 4.4)
 
 
+# Simulación de evaluación
 def evaluar(datos, alertas, inicio, fin):
-    """Predice cada mes con el historial disponible hasta el mes anterior."""
     tradicionales = main.preparar_entradas(datos, ampliadas=False)
     ampliadas = main.preparar_entradas(datos)
     version = main.version_evaluacion()
@@ -39,7 +41,9 @@ def evaluar(datos, alertas, inicio, fin):
         filtro_aplicado = False
         for nombre, usar_ampliadas, restringido in main.MODELOS:
             entradas = entradas_ampliadas if usar_ampliadas else entradas_tradicionales
-            prediccion = main.clasificar(historial, entradas, origen, alertas, restringido)
+            prediccion = main.clasificar(
+                historial, entradas, origen, alertas, restringido
+            )
             predicciones[NOMBRES[nombre]] = prediccion.clase
             if restringido:
                 filtro_aplicado = prediccion.filtrado
@@ -49,70 +53,93 @@ def evaluar(datos, alertas, inicio, fin):
         inflacion = datos.loc[objetivo, "interanual"]
         real = main.categoria(inflacion)
         for modelo, estimacion in predicciones.items():
-            filas.append({
-                "version": version,
-                "mes": str(objetivo),
-                "modelo": modelo,
-                "inflacion_interanual_pct": inflacion,
-                "real": real,
-                "estimacion": estimacion,
-                "comparable": comparable,
-                "estado_enfen": estado,
-                "episodio_enfen": episodio,
-                "filtro_enfen_aplicado": filtro_aplicado,
-            })
+            filas.append(
+                {
+                    "version": version,
+                    "mes": str(objetivo),
+                    "modelo": modelo,
+                    "inflacion_interanual_pct": inflacion,
+                    "real": real,
+                    "estimacion": estimacion,
+                    "comparable": comparable,
+                    "estado_enfen": estado,
+                    "episodio_enfen": episodio,
+                    "filtro_enfen_aplicado": filtro_aplicado,
+                }
+            )
     return pd.DataFrame(filas)
 
 
+# Métricas
 def calcular_metricas(predicciones):
     """Mide el desempeño sobre los mismos meses para todos los modelos."""
     comunes = predicciones.loc[predicciones.comparable]
     filtrados = comunes.loc[comunes.filtro_enfen_aplicado]
     supera_umbral = main.categoria(4)
     resumen, categorias, matrices = [], [], []
+    # Comparamos a los tres también en los meses en que el restringido aplicó ENFEN
     for ambito, muestra in (("global", comunes), ("con_filtro_enfen", filtrados)):
         for modelo, grupo in muestra.groupby("modelo", sort=False):
             informe = classification_report(
-                grupo.real, grupo.estimacion, labels=main.CLASES,
-                output_dict=True, zero_division=0,
+                grupo.real,
+                grupo.estimacion,
+                labels=main.CLASES,
+                output_dict=True,
+                zero_division=0,
             )
             macro = informe["macro avg"]
-            base = {"version": grupo.version.iloc[0], "ambito": ambito, "modelo": modelo}
+            base = {
+                "version": grupo.version.iloc[0],
+                "ambito": ambito,
+                "modelo": modelo,
+            }
             aciertos = int(grupo.real.eq(grupo.estimacion).sum())
-            resumen.append({
-                **base,
-                "mes_inicio": grupo.mes.min(),
-                "mes_fin": grupo.mes.max(),
-                "n_meses": len(grupo),
-                "aciertos": aciertos,
-                "exactitud": aciertos / len(grupo),
-                "exactitud_umbral_3_pct": grupo.real.eq(supera_umbral).eq(
-                    grupo.estimacion.eq(supera_umbral)
-                ).mean(),
-                "precision_macro": macro["precision"],
-                "recall_macro": macro["recall"],
-                "f1_macro": macro["f1-score"],
-            })
+            resumen.append(
+                {
+                    **base,
+                    "mes_inicio": grupo.mes.min(),
+                    "mes_fin": grupo.mes.max(),
+                    "n_meses": len(grupo),
+                    "aciertos": aciertos,
+                    "exactitud": aciertos / len(grupo),
+                    # Cuenta si acertamos al distinguir los meses sobre el 3 %.
+                    "exactitud_umbral_3_pct": grupo.real.eq(supera_umbral)
+                    .eq(grupo.estimacion.eq(supera_umbral))
+                    .mean(),
+                    "precision_macro": macro["precision"],
+                    "recall_macro": macro["recall"],
+                    "f1_macro": macro["f1-score"],
+                }
+            )
+            # Las filas son categorías observadas y las columnas, categorías predichas.
             matriz = confusion_matrix(grupo.real, grupo.estimacion, labels=main.CLASES)
             for i, clase in enumerate(main.CLASES):
                 metricas = informe[clase]
-                categorias.append({
-                    **base,
-                    "categoria": clase,
-                    "casos_reales": int(metricas["support"]),
-                    "casos_predichos": int(matriz[:, i].sum()),
-                    "aciertos": int(matriz[i, i]),
-                    "precision": metricas["precision"],
-                    "recall": metricas["recall"],
-                    "f1": metricas["f1-score"],
-                })
+                categorias.append(
+                    {
+                        **base,
+                        "categoria": clase,
+                        "casos_reales": int(metricas["support"]),
+                        "casos_predichos": int(matriz[:, i].sum()),
+                        "aciertos": int(matriz[i, i]),
+                        "precision": metricas["precision"],
+                        "recall": metricas["recall"],
+                        "f1": metricas["f1-score"],
+                    }
+                )
                 for predicha, casos in zip(main.CLASES, matriz[i]):
-                    matrices.append({
-                        **base, "real": clase, "predicha": predicha, "casos": casos,
-                    })
+                    matrices.append(
+                        {
+                            **base,
+                            "real": clase,
+                            "predicha": predicha,
+                            "casos": casos,
+                        }
+                    )
     return pd.DataFrame(resumen), pd.DataFrame(categorias), pd.DataFrame(matrices)
 
 
+# Presentación
 def mostrar_aciertos(resultados):
     """Presenta los aciertos de cada KNN y destaca el mayor conteo."""
     total = resultados.n_meses.iloc[0]
@@ -122,25 +149,33 @@ def mostrar_aciertos(resultados):
     porcentaje = f"{aciertos / total:.1%}".replace(".", ",")
     encabezado = "KNN con más aciertos" if len(ganadores) == 1 else "Empate entre KNN"
     print(f"{encabezado} · {nombres} · {aciertos} de {total} meses ({porcentaje}).")
-    print("Un acierto significa que la categoría pronosticada coincide con la observada.\n")
+    print(
+        "Un acierto significa que la categoría pronosticada coincide con la observada.\n"
+    )
 
     mostrar_tabla_aciertos(resultados)
 
 
 def mostrar_tabla_aciertos(resultados):
-    tabla = pd.DataFrame({
-        "Pronóstico": resultados.modelo.map(ETIQUETAS),
-        "Meses acertados": resultados.aciertos,
-        "Exactitud": resultados.exactitud.map(lambda valor: f"{valor:.1%}".replace(".", ",")),
-    })
+    tabla = pd.DataFrame(
+        {
+            "Pronóstico": resultados.modelo.map(ETIQUETAS),
+            "Meses acertados": resultados.aciertos,
+            "Exactitud": resultados.exactitud.map(
+                lambda valor: f"{valor:.1%}".replace(".", ",")
+            ),
+        }
+    )
     print(tabla.to_string(index=False))
 
 
 def dibujar_barras(eje, resultados):
     total = resultados.n_meses.iloc[0]
     maximo = resultados.aciertos.max()
-    colores = ["#176B52" if aciertos == maximo else "#3881A9"
-               for aciertos in resultados.aciertos]
+    colores = [
+        "#176B52" if aciertos == maximo else "#3881A9"
+        for aciertos in resultados.aciertos
+    ]
     barras = eje.barh(
         resultados.modelo.map(ETIQUETAS),
         resultados.aciertos,
@@ -174,15 +209,25 @@ def dibujar_grafico(figura, resultados, con_alerta, con_filtro):
     )
     if con_alerta == 0:
         enfen.set_axis_off()
-        enfen.text(0.5, 0.5, "Sin meses con alerta ENFEN",
-                   ha="center", va="center", transform=enfen.transAxes)
+        enfen.text(
+            0.5,
+            0.5,
+            "Sin meses con alerta ENFEN",
+            ha="center",
+            va="center",
+            transform=enfen.transAxes,
+        )
         return
 
     conteos = [con_filtro, con_alerta - con_filtro]
-    barras = enfen.barh(["Aplicó el filtro", "Usó el historial general"],
-                       conteos, color=["#176B52", "#737D86"])
-    enfen.bar_label(barras, labels=[f"{cantidad}/{con_alerta}" for cantidad in conteos],
-                    padding=6)
+    barras = enfen.barh(
+        ["Aplicó el filtro", "Usó el historial general"],
+        conteos,
+        color=["#176B52", "#737D86"],
+    )
+    enfen.bar_label(
+        barras, labels=[f"{cantidad}/{con_alerta}" for cantidad in conteos], padding=6
+    )
     enfen.set_xlabel("Meses con alerta ENFEN")
     enfen.set_xlim(0, con_alerta * 1.24)
     enfen.xaxis.set_major_locator(MaxNLocator(nbins=6, integer=True))
@@ -211,6 +256,7 @@ def mostrar_grafico_aciertos(resultados, con_alerta, con_filtro):
         print(f"Abre el PNG guardado para ver el gráfico. {error}")
 
 
+# EJECUCIÓN - evaluación y exportación
 def ejecutar(mostrar_grafico=False):
     datos = main.cargar_datos()
     alertas = main.cargar_alertas()
@@ -218,11 +264,15 @@ def ejecutar(mostrar_grafico=False):
     inicio = desde if INICIO is None else pd.Period(INICIO, freq="M")
     fin = hasta if FIN is None else pd.Period(FIN, freq="M")
     if not desde <= inicio <= fin <= hasta:
-        raise ValueError(f"El intervalo debe estar en orden y dentro de {desde} a {hasta}.")
+        raise ValueError(
+            f"El intervalo debe estar en orden y dentro de {desde} a {hasta}."
+        )
 
     predicciones = evaluar(datos, alertas, inicio, fin)
     if not predicciones.comparable.any():
-        raise ValueError("El intervalo no contiene meses con predicción de los tres KNN.")
+        raise ValueError(
+            "El intervalo no contiene meses con predicción de los tres KNN."
+        )
     resumen, categorias, matrices = calcular_metricas(predicciones)
     guardar_csv(predicciones, SALIDA / "predicciones.csv")
     guardar_csv(resumen, SALIDA / "resumen.csv")
@@ -231,6 +281,7 @@ def ejecutar(mostrar_grafico=False):
 
     resultados = resumen.loc[resumen.ambito.eq("global")]
     filtrados = resumen.loc[resumen.ambito.eq("con_filtro_enfen")]
+    # Hay una fila por modelo. Para medir la cobertura ENFEN contamos cada mes una vez.
     meses = predicciones.loc[predicciones.comparable].drop_duplicates("mes")
     cobertura = meses.estado_enfen.value_counts()
     con_alerta = cobertura.get("alerta", 0)
@@ -242,20 +293,32 @@ def ejecutar(mostrar_grafico=False):
     guardar_figura(figura, grafico)
     mostrar_aciertos(resultados)
 
-    print(f"\nMeses comparables · {len(meses)} de {predicciones.mes.nunique()} solicitados")
-    print(f"ENFEN · {con_alerta} con alerta, "
-          f"{cobertura.get('sin_alerta', 0)} sin alerta, "
-          f"{cobertura.get('desconocido', 0)} con estado desconocido.")
-    print(f"El KNN restringido aplicó el filtro en {con_filtro} de {len(meses)} meses comparables.")
+    print(
+        f"\nMeses comparables · {len(meses)} de {predicciones.mes.nunique()} solicitados"
+    )
+    print(
+        f"ENFEN · {con_alerta} con alerta, "
+        f"{cobertura.get('sin_alerta', 0)} sin alerta, "
+        f"{cobertura.get('desconocido', 0)} con estado desconocido."
+    )
+    print(
+        f"El KNN restringido aplicó el filtro en {con_filtro} de {len(meses)} meses comparables."
+    )
     if con_alerta > con_filtro:
-        print(f"En {con_alerta - con_filtro} meses con alerta usó el historial general "
-              f"porque había menos de {main.K} antecedentes con alerta.")
+        print(
+            f"En {con_alerta - con_filtro} meses con alerta usó el historial general "
+            f"porque había menos de {main.K} antecedentes con alerta."
+        )
     if not filtrados.empty:
-        print(f"\nAciertos en los {con_filtro} meses en que el KNN restringido aplicó el filtro")
+        print(
+            f"\nAciertos en los {con_filtro} meses en que el KNN restringido aplicó el filtro"
+        )
         mostrar_tabla_aciertos(filtrados)
 
-    print("Simulación con las series recopiladas. La disponibilidad y las revisiones "
-          "históricas de los datos económicos quedan por verificar.")
+    print(
+        "Simulación con las series recopiladas. La disponibilidad y las revisiones "
+        "históricas de los datos económicos quedan por verificar."
+    )
     print(f"Gráfico de aciertos · {grafico.resolve()}")
     print(f"Archivos CSV guardados en {SALIDA.resolve()}.")
     if mostrar_grafico:

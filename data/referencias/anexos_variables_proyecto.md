@@ -94,7 +94,7 @@ Junto con `mensual` e `interanual`, forman las cinco entradas del KNN tradiciona
 - Enlace: https://enfen.imarpe.gob.pe/download/nota-tecnica-enfen-01-2024-definicion-operacional-de-los-eventos-el-nino-costero-y-la-nina-costera-en-el-peru/
 - Fuente para reconstruir alertas: https://enfen.imarpe.gob.pe/comunicados/
 - Archivo local de episodios: `enfen_eventos_observados_hasta_2024.csv`; registra inicio, fin, duración y magnitud de episodios identificados retrospectivamente.
-- El clasificador lee [alertas_enfen.csv](alertas_enfen.csv). Cada fila incluye el mes objetivo, la fecha del comunicado vigente al corte del día 1, el estado para el filtro, el episodio de alerta y el enlace al comunicado oficial. El registro cubre abril de 2015 a octubre de 2026. Los meses fuera de ese intervalo tienen estado desconocido.
+- El clasificador lee [alertas_enfen_mensuales.csv](../entradas/alertas_enfen_mensuales.csv). Cada fila incluye el mes objetivo, la fecha del comunicado vigente al corte del día 1, el estado para el filtro, el episodio de alerta y el enlace al comunicado oficial. El registro cubre abril de 2015 a octubre de 2026. Los meses fuera de ese intervalo tienen estado desconocido.
 - La fecha del comunicado se usa como fecha de publicación para simular el corte mensual. Solo la alerta de El Niño Costero activa la restricción. La vigilancia, la alerta de La Niña y el estado no activo se codifican como `sin_alerta` para este filtro. El identificador agrupa meses consecutivos bajo alerta y sirve para contar episodios entre los vecinos.
 - ENFEN no es una décima entrada de distancia. Si el mes objetivo tiene alerta, el programa limita los candidatos a antecedentes cuyos meses siguientes también tenían alerta, siempre que existan al menos cinco candidatos utilizables.
 - Si no hay suficientes candidatos o el estado es desconocido, utiliza el historial general.
@@ -122,7 +122,7 @@ Para pronosticar octubre de 2026 con origen en septiembre de 2026, las cinco ent
 5. Comparar KNN tradicional, general ampliado y restringido sobre los mismos meses mediante una evaluación cronológica.
 6. Informar exactitud, precisión por clase, recall, F1 macro, matriz de confusión y cantidad de casos por clase. Comparar también con una referencia sencilla, como repetir la categoría del mes de origen.
 
-Las cuatro series externas locales contienen 237 meses, de enero de 2007 a septiembre de 2026, según el anexo de preparación existente. Se incluyó diciembre de 2006 como base de las variaciones de enero de 2007. Las transformaciones ya están almacenadas en `variables_mensuales.csv`; `main.py` las lee y aplica el rezago.
+Las cuatro series externas locales contienen 237 meses, de enero de 2007 a septiembre de 2026, según el anexo de preparación existente. Se incluyó diciembre de 2006 como base de las variaciones de enero de 2007. Las transformaciones ya están almacenadas en [variables_externas_mensuales.csv](../entradas/variables_externas_mensuales.csv); `main.py` las lee y aplica el rezago.
 
 El rezago de un mes es una regla del programa, pero no acredita por sí solo que todos los valores estuvieran publicados en la fecha simulada. Falta verificar las fechas históricas de difusión y las revisiones. Las variables externas son candidatas a mejorar el pronóstico: la mejora y el efecto de la restricción deben demostrarse con resultados, no darse por supuestos.
 

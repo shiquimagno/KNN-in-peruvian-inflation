@@ -1,5 +1,12 @@
 # Peruvian-inflation-by-KNN-
 
+### Datos y resultados
+
+- [IPC mensual de Lima Metropolitana](data/originales/ipc_lima_mensual_bcrp.csv), descargado de BCRPData.
+- [Variables externas](data/entradas/variables_externas_mensuales.csv) y [alertas ENFEN](data/entradas/alertas_enfen_mensuales.csv), entradas de los modelos ampliados.
+- [Referencias de los datos](data/referencias/), con la procedencia, los anexos y el registro complementario de episodios ENFEN.
+- `resultados/evaluaciones/` guarda el historial y el resumen del menú. `resultados/retrospectiva/` guarda los CSV y el gráfico de la evaluación por lotes.
+
 ### Datos curiosos del proyecto
 
 - Estructura de carpetas basada en separación de responsabilidades

@@ -1,6 +1,6 @@
 # Fuentes para el diseño del KNN
 
-Consulta del 12 de noviembre de 2026. Los 237 registros de `variables_mensuales.csv` están fechados por mes de observación. Para reproducir una predicción pasada hay que verificar cuándo estuvo disponible cada valor y qué revisiones pudo haber. La tabla por sí sola no contiene ese historial de publicación.
+Consulta del 12 de noviembre de 2026. Los 237 registros de [variables_externas_mensuales.csv](../entradas/variables_externas_mensuales.csv) están fechados por mes de observación. Para reproducir una predicción pasada hay que verificar cuándo estuvo disponible cada valor y qué revisiones pudo haber. La tabla por sí sola no contiene ese historial de publicación.
 
 | Columna | Serie y tratamiento |
 | --- | --- |

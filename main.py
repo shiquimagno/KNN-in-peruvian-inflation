@@ -17,17 +17,19 @@ from src.resultados import (
 )
 from src.resumen import exportar_resumen, guardar_csv
 
-DATOS = path.join(path.dirname(path.realpath(__file__)), "data")
-CSV = path.join(DATOS, "origiales", "Mensuales-20261019-144216.csv")
-FUENTES = path.join(DATOS, "fuentes_adicionales")
-METRICAS = path.join(DATOS, "metrics.csv")
+# Rutas
+RAIZ = path.dirname(path.realpath(__file__))
+DATOS = path.join(RAIZ, "data")
+CSV = path.join(DATOS, "originales", "ipc_lima_mensual_bcrp.csv")
+FUENTES = path.join(DATOS, "entradas")
+METRICAS = path.join(RAIZ, "resultados", "evaluaciones", "historial_evaluaciones.csv")
 MESES = "ene feb mar abr may jun jul ago sep oct nov dic".split()
 
 
-# Lectura y validación del historial de inflación
+# IPC => lectura y validación del historial mensual
 def cargar_datos():
-    # La segunda fila describe las series. La primera contiene sus códigos.
     datos = pd.read_csv(CSV, encoding="cp1252", skiprows=[1])
+    # La primera columna identifica cada mes con una etiqueta como Ene26
     fechas = datos.iloc[:, 0].str.lower()
     meses = fechas.str[:3].map({nombre: i for i, nombre in enumerate(MESES, 1)})
     fechas = pd.to_datetime(
@@ -56,7 +58,8 @@ def cargar_datos():
     return datos
 
 
-# Categorías de inflación respecto del rango meta
+# Modelos
+# Clases:
 def categoria(inflacion):
     if inflacion < 0:
         return "Deflación"
@@ -67,10 +70,10 @@ def categoria(inflacion):
     return "Por encima del rango meta"
 
 
-# Configuración de los tres modelos
 CLASES = [categoria(x) for x in (-1, 0.5, 2, 4)]
+# Vecinos elegidos:
 K = 5
-# Actualizar al cambiar los datos de entrada o las reglas de evaluación.
+# Cambia la revisión si cambian los datos de entrada o las reglas de evaluación
 REVISION_EVALUACION = "v2"
 EXTERNAS = [
     "tc_var_pct",
@@ -78,24 +81,28 @@ EXTERNAS = [
     "wti_var_pct",
     "fao_alimentos_var_pct",
 ]
-
-
+# Modelos:
 MODELOS = [
     ("Tradicional (5 variables)", False, False),
-    ("General (9 variables)", True, False),
+    (
+        "General (9 variables)",
+        True,
+        False,
+    ),
     ("Restringido (9 variables)", True, True),
 ]
 
 
+# Variables externas (investigadas)
 def cargar_externas():
     externas = pd.read_csv(
-        path.join(FUENTES, "variables_mensuales.csv"), index_col="mes_observacion"
+        path.join(FUENTES, "variables_externas_mensuales.csv"),
+        index_col="mes_observacion",
     )
     externas.index = pd.PeriodIndex(externas.index, freq="M")
     return externas
 
 
-# Preparación de variables y rezagos mensuales
 def preparar_entradas(datos, ampliadas=True):
     entradas = datos.assign(
         mensual_anterior=datos.mensual.shift(1),
@@ -104,18 +111,16 @@ def preparar_entradas(datos, ampliadas=True):
     )
     if ampliadas:
         externas = cargar_externas()
-        # Un mes de rezago en cada fila, también al simular pronósticos antiguos.
+        # Para pronosticar abril con el IPC de marzo, las variables externas son de febrero.
         entradas = entradas.join(externas[EXTERNAS].reindex(datos.index).shift(1))
     return entradas.replace([np.inf, -np.inf], np.nan)
 
 
-# Lectura de alertas ENFEN disponibles en cada fecha
+# Filtro de alertas del ENFEN (fenómeno del niño)
 def cargar_alertas(ruta=None):
-    """Una fila por comunicado y mes objetivo al que aplica (AAAA-MM).
-    fecha_publicacion: AAAA-MM-DD; estado: alerta/sin_alerta/desconocido;
-    episodio: identificador común a los comunicados del mismo episodio.
-    """
-    archivo = path.join(FUENTES, "alertas_enfen.csv") if ruta is None else ruta
+    archivo = (
+        path.join(FUENTES, "alertas_enfen_mensuales.csv") if ruta is None else ruta
+    )
     if ruta is None and not path.exists(archivo):
         return {}
     tabla = pd.read_csv(archivo, dtype=str, keep_default_na=False)
@@ -137,17 +142,18 @@ def cargar_alertas(ruta=None):
         raise ValueError(
             "Hay dos estados ENFEN para el mismo mes y fecha de publicación."
         )
-    # Corte simulado: primer día del mes objetivo, tras conocer el IPC de origen.
+    # Solo cuentan los comunicados publicados hasta el primer día del mes objetivo.
     vigentes = tabla[tabla.fecha_publicacion <= tabla.mes_objetivo.dt.to_timestamp()]
     ultimos = vigentes.sort_values("fecha_publicacion").drop_duplicates(
-        "mes_objetivo", keep="last"
+        "mes_objetivo",
+        keep="last",
     )
     return {
         r.mes_objetivo: (r.estado, r.episodio.strip()) for r in ultimos.itertuples()
     }
 
 
-# Datos que devuelve cada consulta al clasificador
+# Seleccionando vecinos para el KNN
 class Resultado:
     def __init__(self):
         self.clase = None
@@ -158,10 +164,8 @@ class Resultado:
         self.avisos = []
 
 
-# Entrenamiento y consulta del modelo KNN
 def clasificar(datos, entradas, origen, alertas, restringido=False):
     resultado = Resultado()
-    # Condición climática del mes que se quiere predecir
     estado = alertas.get(origen + 1, ("desconocido", ""))[0]
     if restringido and estado == "alerta":
         resultado.avisos.append(
@@ -172,19 +176,20 @@ def clasificar(datos, entradas, origen, alertas, restringido=False):
             "Estado ENFEN desconocido. Se usa el historial general."
         )
 
-    # Entradas completas y antecedentes con respuesta conocida
     if origen not in entradas.index or entradas.loc[origen].isna().any():
         resultado.avisos.append("Entradas incompletas para el mes de origen.")
         return resultado
+    # Cada mes histórico vota con la categoría de su mes siguiente.
     etiquetas = datos.interanual.loc[:origen].shift(-1).dropna().map(categoria)
     historial = entradas.loc[entradas.index.intersection(etiquetas.index)].dropna()
     if len(historial) < K:
         resultado.avisos.append("Hay menos de cinco meses históricos utilizables.")
         return resultado
 
-    # Los modelos ampliados usan la misma escala para comparar distancias.
+    # Las variantes de nueve variables comparten la escala
     escala = StandardScaler().fit(historial)
     candidatos = historial
+    # Si la alerta deja menos de K vecinos posibles, se usa el historial general y se avisa
     if restringido and estado == "alerta":
         comparables = [
             m for m in historial.index if alertas.get(m + 1, ("", ""))[0] == "alerta"
@@ -199,13 +204,10 @@ def clasificar(datos, entradas, origen, alertas, restringido=False):
 
     consulta = escala.transform(entradas.loc[[origen]])
     distancias = manhattan_distances(consulta, escala.transform(candidatos))[0]
-    # Un orden estable conserva el orden cronológico cuando hay distancias iguales.
     cercanos = np.argsort(distancias, kind="stable")[:K]
     resultado.vecinos = candidatos.index[cercanos].tolist()
-    # Si hay empate entre categorías, se elige la del vecino más cercano entre ellas.
     clases = etiquetas.loc[resultado.vecinos]
     resultado.clase = clases[clases.isin(clases.mode())].iloc[0]
-    # Episodios climáticos representados entre los vecinos
     for mes in resultado.vecinos:
         estado_vecino, episodio = alertas.get(mes + 1, ("desconocido", ""))
         if estado_vecino == "alerta":
@@ -216,11 +218,11 @@ def clasificar(datos, entradas, origen, alertas, restringido=False):
     return resultado
 
 
+# Evaluación mensual
 def version_evaluacion():
     return f"{REVISION_EVALUACION}-k{K}"
 
 
-# Lectura del historial de evaluaciones guardadas
 def leer_metricas(archivo):
     tabla = pd.read_csv(archivo)
     requeridas = {"mes", "modelo", "real", "estimacion"}
@@ -234,7 +236,6 @@ def leer_metricas(archivo):
     return tabla
 
 
-# Evaluación retrospectiva de los tres modelos
 def retrospectiva(datos, objetivo, alertas):
     origen = objetivo - 1
     if objetivo not in datos.index or origen not in datos.index:
@@ -249,25 +250,25 @@ def retrospectiva(datos, objetivo, alertas):
         entradas = ampliadas if usar_ampliadas else tradicionales
         r = clasificar(historial, entradas, origen, alertas, restringido)
         resultados.append((nombre, r))
-    # Comparación con la categoría observada y registro de la evaluación
     inflacion = datos.loc[objetivo, "interanual"]
     real = categoria(inflacion)
     mostrar_evaluacion(objetivo, inflacion, real, resultados)
     version = version_evaluacion()
-    nuevos = pd.DataFrame([
-        {
-            "mes": str(objetivo),
-            "version": version,
-            "modelo": nombre,
-            "estimacion": r.clase,
-            "filtro_aplicado": r.filtrado,
-        }
-        for nombre, r in resultados
-    ]).assign(real=real)
+    nuevos = pd.DataFrame(
+        [
+            {
+                "mes": str(objetivo),
+                "version": version,
+                "modelo": nombre,
+                "estimacion": r.clase,
+                "filtro_aplicado": r.filtrado,
+            }
+            for nombre, r in resultados
+        ]
+    ).assign(real=real)
     if path.exists(METRICAS) and path.getsize(METRICAS):
         nuevos = pd.concat([leer_metricas(METRICAS), nuevos], ignore_index=True)
     nuevos = nuevos.drop_duplicates(["version", "mes", "modelo"], keep="last")
-    # Guardado del historial y actualización del resumen académico
     guardar_csv(nuevos, METRICAS)
     print(f"Evaluación guardada en {METRICAS}.")
     try:
@@ -280,7 +281,7 @@ def retrospectiva(datos, objetivo, alertas):
         )
 
 
-# Cálculo y presentación de las métricas comparativas
+# Resumen comparativo
 def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
     if archivo_csv is None:
         archivo_csv = METRICAS
@@ -291,7 +292,6 @@ def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
             print("Todavía no hay evaluaciones. Usa la opción 5 para evaluar un mes.")
         return None
     tabla = leer_metricas(archivo_csv)
-    # Comparación limitada a la configuración actual
     actual = version_evaluacion()
     coincide = tabla.version.eq(actual).fillna(False)
     excluidos = int((~coincide).sum())
@@ -314,7 +314,9 @@ def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
         r"(?!0000)[0-9]{4}-(0[1-9]|1[0-2])", na=False
     )
     if not meses_validos.all():
-        raise ValueError("El registro contiene meses inválidos. Se espera el formato AAAA-MM.")
+        raise ValueError(
+            "El registro contiene meses inválidos. Se espera el formato AAAA-MM."
+        )
     if (
         not tabla.real.isin(CLASES).all()
         or not tabla.estimacion.dropna().isin(CLASES).all()
@@ -325,7 +327,7 @@ def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
     nombres = [nombre for nombre, _, _ in MODELOS]
     if not tabla.modelo.isin(nombres).all():
         raise ValueError("El registro contiene nombres de modelos desconocidos.")
-    # Meses con predicción disponible para los tres modelos
+    # La comparación incluye solo los meses con predicción de los tres modelos.
     conjuntos = [
         set(tabla.loc[tabla.modelo.eq(nombre) & tabla.estimacion.notna(), "mes"])
         for nombre in nombres
@@ -342,7 +344,6 @@ def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
         raise ValueError(
             "Las respuestas reales difieren entre modelos para el mismo mes."
         )
-    # Métricas agregadas y resultados por categoría
     resumen = []
     detalles = []
     for nombre in nombres:
@@ -379,7 +380,6 @@ def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
     exportar_resumen(resumen, destino)
     if not mostrar:
         return resumen
-    # Tabla principal e intervalo realmente evaluado
     print(f"Modelos comparados · {len(nombres)}")
     print(f"Meses evaluados por todos los modelos · {len(comunes)}")
     print(f"Intervalo evaluado · {min(comunes)} a {max(comunes)}")
@@ -387,7 +387,9 @@ def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
         print(f"Meses incluidos · {', '.join(sorted(comunes))}")
     meses_intervalo = len(pd.period_range(min(comunes), max(comunes), freq="M"))
     if len(comunes) < meses_intervalo:
-        print("Hay meses sin evaluar dentro del intervalo. Las métricas usan solo los meses incluidos.")
+        print(
+            "Hay meses sin evaluar dentro del intervalo. Las métricas usan solo los meses incluidos."
+        )
     if len(comunes) == 1:
         print(
             "Solo hay un mes evaluado. Todavía hay poca evidencia para comparar el desempeño."
@@ -415,7 +417,6 @@ def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
     print(
         "Las métricas indefinidas se fijan en 0. Revisa los casos reales de cada categoría."
     )
-    # Soporte de cada categoría y matrices numéricas opcionales
     for nombre, grupo, detalle in detalles:
         print(f"\n{NOMBRES[nombre]} · RESULTADOS POR CATEGORÍA")
         tabla_terminal(detalle)
@@ -441,7 +442,7 @@ def generar_resumen(archivo_csv=None, mostrar=True, matrices=False):
     return resumen
 
 
-# Acciones adicionales del resumen comparativo
+# MENÚS - resumen comparativo y opciones principales
 def consultar_resumen():
     resumen = generar_resumen()
     if resumen is None:
@@ -454,9 +455,7 @@ def consultar_resumen():
                 questionary.Choice(
                     "Consultar matrices numéricas y versión", value="matrices"
                 ),
-                questionary.Choice(
-                    "Mostrar gráfico comparativo", value="grafico"
-                ),
+                questionary.Choice("Mostrar gráfico comparativo", value="grafico"),
             ],
             instruction=INSTRUCCION,
         ).ask()
@@ -470,7 +469,6 @@ def consultar_resumen():
             mostrar_comparacion(resumen)
 
 
-# Menú principal y manejo de errores de la aplicación
 def menu():
     opciones = [
         "Consultar datos por intervalo",
@@ -533,6 +531,5 @@ def menu():
             print(f"\nAviso: no se pudo completar la consulta. {error}\n")
 
 
-# Inicio del programa al ejecutarlo desde la terminal
 if __name__ == "__main__":
     menu()

@@ -6,7 +6,8 @@
 - **Fuente estadística indicada:** Instituto Nacional de Estadística e Informática (INEI).
 - **Enlace:** https://estadisticas.bcrp.gob.pe/estadisticas/series/mensuales/inflacion
 - **Fecha de descarga:** 19 de octubre de 2026.
-- **Archivo descargado:** `Mensuales-20261019-144216.csv`
+- **Nombre en la descarga:** `Mensuales-20261019-144216.csv`
+- **Archivo en el proyecto:** [ipc_lima_mensual_bcrp.csv](../originales/ipc_lima_mensual_bcrp.csv)
 - **Cobertura geográfica:** Lima Metropolitana.
 - **Frecuencia:** mensual.
 - **Periodo seleccionado:** enero de 2007 a septiembre de 2026.
@@ -24,7 +25,7 @@ IPC significa Índice de Precios al Consumidor.
 
 Estas dos series permiten construir las cinco variables de entrada acordadas: inflación mensual del mes consultado y de los dos meses anteriores, e inflación en doce meses del mes consultado y del anterior.
 
-La variación en doce meses del mes siguiente permitirá construir la etiqueta de clasificación. El borrador actual distingue cuatro categorías: deflación, por debajo, dentro y por encima del rango meta, con los límites definidos en [la explicación técnica vigente](../documentación_aprendizaje/explicaciones_técnicas.md). Esa información futura se utilizará como respuesta durante el entrenamiento y la evaluación, sin incluirse entre las entradas de la predicción.
+La variación en doce meses del mes siguiente permitirá construir la etiqueta de clasificación. El borrador actual distingue cuatro categorías: deflación, por debajo, dentro y por encima del rango meta, con los límites definidos en [la explicación técnica vigente](../../documentación_aprendizaje/explicaciones_técnicas.md). Esa información futura se utilizará como respuesta durante el entrenamiento y la evaluación, sin incluirse entre las entradas de la predicción.
 
 ## Revisión del archivo
 

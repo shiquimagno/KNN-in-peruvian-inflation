@@ -24,8 +24,6 @@ htmlcov/
 *.tmp
 
 # Resultados de ejecución que se regeneran o se conservan solo localmente
-/data/metrics.csv
-/data/resumen_metricas.csv
 /resultados/
 
 # Borradores locales del informe
